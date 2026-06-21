@@ -9,25 +9,33 @@ import com.example.typeahead.trending.TrendWindow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "typeahead.search-index", havingValue = "opensearch")
 public class OpenSearchSuggestionIndex implements SuggestionIndex {
+    private static final int BULK_CHUNK_SIZE = 1_000;
+
     private final OpenSearchProperties properties;
     private final ObjectMapper objectMapper;
     private final TrendBucketService trendBucketService;
     private final RankingService rankingService;
+    private final AtomicBoolean indexReady = new AtomicBoolean(false);
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
@@ -78,7 +86,24 @@ public class OpenSearchSuggestionIndex implements SuggestionIndex {
         if (records.isEmpty()) {
             return;
         }
+        ensureIndex();
+        List<QueryRecord> batch = new ArrayList<>(BULK_CHUNK_SIZE);
+        for (QueryRecord record : records) {
+            batch.add(record);
+            if (batch.size() == BULK_CHUNK_SIZE) {
+                bulkIndex(batch);
+                batch.clear();
+            }
+        }
+        if (!batch.isEmpty()) {
+            bulkIndex(batch);
+        }
+        refreshIndex();
+    }
+
+    private void bulkIndex(Collection<QueryRecord> records) {
         StringBuilder bulk = new StringBuilder();
+        String now = Instant.now().toString();
         for (QueryRecord record : records) {
             long recent1h = trendBucketService.recentCount(record.normalizedQuery(), TrendWindow.ONE_HOUR);
             long recent24h = trendBucketService.recentCount(record.normalizedQuery(), TrendWindow.TWENTY_FOUR_HOURS);
@@ -94,14 +119,15 @@ public class OpenSearchSuggestionIndex implements SuggestionIndex {
                         "historical_count", record.historicalCount(),
                         "recent_count_1h", recent1h,
                         "recent_count_24h", recent24h,
-                        "hybrid_score", hybridScore))).append('\n');
+                        "hybrid_score", hybridScore,
+                        "updated_at", now))).append('\n');
             } catch (IOException ex) {
                 throw new IllegalStateException("failed to serialize OpenSearch bulk request", ex);
             }
         }
         try {
             HttpRequest request = HttpRequest.newBuilder(bulkUri())
-                    .timeout(Duration.ofSeconds(10))
+                    .timeout(Duration.ofSeconds(60))
                     .header("Content-Type", "application/x-ndjson")
                     .POST(HttpRequest.BodyPublishers.ofString(bulk.toString()))
                     .build();
@@ -109,11 +135,79 @@ public class OpenSearchSuggestionIndex implements SuggestionIndex {
             if (response.statusCode() >= 300) {
                 throw new IllegalStateException("OpenSearch bulk refresh failed with status " + response.statusCode());
             }
+            JsonNode root = objectMapper.readTree(response.body());
+            if (root.path("errors").asBoolean(false)) {
+                throw new IllegalStateException("OpenSearch bulk refresh returned item errors: "
+                        + response.body().substring(0, Math.min(response.body().length(), 1_000)));
+            }
         } catch (IOException ex) {
             throw new IllegalStateException("failed to update OpenSearch", ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("OpenSearch bulk request interrupted", ex);
+        }
+    }
+
+    private void ensureIndex() {
+        if (indexReady.get()) {
+            return;
+        }
+        synchronized (indexReady) {
+            if (indexReady.get()) {
+                return;
+            }
+            try {
+                HttpRequest head = HttpRequest.newBuilder(indexUri())
+                        .timeout(Duration.ofSeconds(5))
+                        .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                        .build();
+                HttpResponse<Void> headResponse = httpClient.send(head, HttpResponse.BodyHandlers.discarding());
+                if (headResponse.statusCode() == 404) {
+                    HttpRequest create = HttpRequest.newBuilder(indexUri())
+                            .timeout(Duration.ofSeconds(20))
+                            .header("Content-Type", "application/json")
+                            .PUT(HttpRequest.BodyPublishers.ofString(loadMapping()))
+                            .build();
+                    HttpResponse<String> createResponse = httpClient.send(create, HttpResponse.BodyHandlers.ofString());
+                    if (createResponse.statusCode() >= 300) {
+                        throw new IllegalStateException("OpenSearch index creation failed with status "
+                                + createResponse.statusCode() + ": " + createResponse.body());
+                    }
+                } else if (headResponse.statusCode() >= 300) {
+                    throw new IllegalStateException("OpenSearch index check failed with status " + headResponse.statusCode());
+                }
+                indexReady.set(true);
+            } catch (IOException ex) {
+                throw new IllegalStateException("failed to prepare OpenSearch index", ex);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("OpenSearch index preparation interrupted", ex);
+            }
+        }
+    }
+
+    private String loadMapping() throws IOException {
+        ClassPathResource resource = new ClassPathResource("opensearch/query_suggestions_mapping.json");
+        try (InputStream inputStream = resource.getInputStream()) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void refreshIndex() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(refreshUri())
+                    .timeout(Duration.ofSeconds(20))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 300) {
+                throw new IllegalStateException("OpenSearch index refresh failed with status " + response.statusCode());
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("failed to refresh OpenSearch index", ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("OpenSearch index refresh interrupted", ex);
         }
     }
 
@@ -143,6 +237,14 @@ public class OpenSearchSuggestionIndex implements SuggestionIndex {
 
     private URI searchUri() {
         return URI.create("%s/%s/_search".formatted(properties.baseUrl(), properties.index()));
+    }
+
+    private URI indexUri() {
+        return URI.create("%s/%s".formatted(properties.baseUrl(), properties.index()));
+    }
+
+    private URI refreshUri() {
+        return URI.create("%s/%s/_refresh".formatted(properties.baseUrl(), properties.index()));
     }
 
     private URI bulkUri() {

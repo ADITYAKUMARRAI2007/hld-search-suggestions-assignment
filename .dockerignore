@@ -1,0 +1,14 @@
+.git
+.github
+.m2
+target
+
+data/*.parquet
+data/*.jsonl
+data/*.csv.gz
+data/amazonqac_*.csv
+
+docs/screenshots
+docs/project-report.pdf
+
+.DS_Store

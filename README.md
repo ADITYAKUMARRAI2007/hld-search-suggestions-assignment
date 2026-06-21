@@ -136,13 +136,13 @@ Recent searches are tracked through batch-aggregated 5-minute buckets. The API s
 
 `POST /search` accepts the search and queues an event. The batch worker aggregates repeated queries and flushes every 2 seconds or 500 events.
 
-Example from the live smoke benchmark:
+Example from the full 100,000-query Docker benchmark:
 
 ```text
 Search events received: 500
-DB write operations: 5
-Writes saved: 495
-Write reduction: 99.00%
+DB write operations: 8
+Writes saved: 492
+Write reduction: 98.40%
 ```
 
 Failure trade-off:
@@ -156,23 +156,23 @@ More detail: [docs/tradeoffs.md](docs/tradeoffs.md)
 
 ## Performance Evidence
 
-Smoke-profile benchmark command:
+Full-dataset benchmark command:
 
 ```bash
 ./scripts/benchmark.sh
 ```
 
-Measured on the local smoke profile:
+Measured after loading 100,000 real AmazonQAC queries into PostgreSQL and OpenSearch:
 
 ```text
-Suggest requests: 201
-Cache hit rate: 91.54%
-Average suggest latency: 0.91 ms
-P95 suggest latency: 1.62 ms
+Suggest requests: 200
+Cache hit rate: 96.00%
+Average suggest latency: 6.40 ms
+P95 suggest latency: 6.43 ms
 Search events: 500
-DB writes: 5
-Writes saved: 495
-Write reduction: 99.00%
+DB writes: 8
+Writes saved: 492
+Write reduction: 98.40%
 ```
 
 Full report: [docs/performance-report.md](docs/performance-report.md)
@@ -196,4 +196,4 @@ The demo proves the required ranking difference: `rank=count` keeps the historic
 
 - AmazonQAC full train data is not committed because the dataset is large.
 - The public GitHub repository contains the runnable source code, Markdown report source, and generated PDF report.
-- The included screenshots and smoke benchmark were generated from the evaluator-friendly local profile.
+- The included performance report was generated from the Docker profile with 100,000 loaded AmazonQAC queries.

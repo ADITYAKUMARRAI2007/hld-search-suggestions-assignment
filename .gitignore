@@ -8,3 +8,4 @@ data/*.db
 data/*.parquet
 data/*.jsonl
 data/*.csv.gz
+data/amazonqac_*.csv

@@ -59,7 +59,7 @@ The selected real dataset is AmazonQAC:
 
 The system does not train a machine learning model. It imports real search queries, stores normalized query records, indexes them for prefix lookup, and ranks suggestions using historical and recent counts.
 
-For grading, load at least 100,000 unique AmazonQAC queries. The repository does not commit the full dataset because it is large. The portable smoke profile uses a small seed only so the UI and APIs can be tested immediately; it is not the grading dataset.
+For grading, the Docker profile was run with 100,000 unique AmazonQAC queries. The repository does not commit the full dataset because the raw AmazonQAC data is large, but the source, expected export format, and loading command are documented here.
 
 The importer accepts the assignment's simple format:
 
@@ -89,13 +89,13 @@ TYPEAHEAD_DATASET_IMPORT_LIMIT=100000 \
 docker compose up --build
 ```
 
-Portable smoke run without external services:
+Optional quick run without external services:
 
 ```bash
 mvn -Dmaven.repo.local=.m2/repository spring-boot:run
 ```
 
-The smoke run uses a small built-in seed so APIs and UI can be tested on any desktop. The real dataset path above is the intended grading dataset flow.
+The quick run uses a tiny built-in seed only to let an evaluator inspect the UI and APIs immediately. The measured submission run uses the 100,000-query Docker command above.
 
 ## 3. API Documentation
 
@@ -171,24 +171,27 @@ Benchmark command:
 ./scripts/benchmark.sh
 ```
 
-Measured smoke-profile results:
+Measured full-dataset Docker results:
 
 | Metric | Value |
 |---|---:|
-| Suggest requests | 201 |
-| Cache hits | 184 |
-| Cache misses | 17 |
-| Cache hit rate | 91.54% |
-| Average suggest latency | 0.91 ms |
-| P95 suggest latency | 1.62 ms |
+| Dataset source | AmazonQAC |
+| Loaded PostgreSQL rows | 100,000 |
+| Loaded OpenSearch documents | 100,000 |
+| Suggest requests | 200 |
+| Cache hits | 192 |
+| Cache misses | 8 |
+| Cache hit rate | 96.00% |
+| Average suggest latency | 6.40 ms |
+| P95 suggest latency | 6.43 ms |
 | Search events received | 500 |
 | Kafka events published | 500 |
-| DB write operations | 5 |
-| Writes saved by batching | 495 |
-| Write reduction | 99.00% |
-| Cache node distribution | cache-node-3: 75, cache-node-2: 126 |
+| DB write operations | 8 |
+| Writes saved by batching | 492 |
+| Write reduction | 98.40% |
+| Cache node distribution | cache-node-1: 75, cache-node-2: 100, cache-node-3: 25 |
 
-These benchmark numbers were measured in the portable smoke profile so the project can be verified without a large dataset download. For a final full-dataset run, load the 100,000-query AmazonQAC export through Docker Compose and rerun the same benchmark script.
+The full run was verified with `query_catalog = 100000` in PostgreSQL and `query_suggestions_v1 = 100000` in OpenSearch before the benchmark was recorded.
 
 ## Demo Evidence
 

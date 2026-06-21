@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
-PREFIXES=("iph" "ip" "ai" "java" "python" "cricket" "laptop" "air")
+PREFIXES=("sha" "sta" "aqu" "ute" "blu" "sku" "nai" "dec")
 
 for i in $(seq 1 200); do
   prefix="${PREFIXES[$((i % ${#PREFIXES[@]}))]}"
