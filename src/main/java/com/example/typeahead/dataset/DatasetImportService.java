@@ -66,9 +66,9 @@ public class DatasetImportService {
                 rowsRead++;
                 Map<String, Object> row = objectMapper.readValue(line, new TypeReference<>() {});
                 QueryRecord record = importRow(
-                        stringValue(row.get("final_search_term")),
-                        longValue(row.get("popularity")),
-                        stringValue(row.get("search_time")),
+                        firstString(row, "final_search_term", "query", "keyword", "title", "product_name"),
+                        firstLong(row, "popularity", "count", "frequency", "search_count"),
+                        firstString(row, "search_time", "last_searched_at", "timestamp"),
                         seen);
                 if (record != null) {
                     indexed.add(record);
@@ -95,9 +95,9 @@ public class DatasetImportService {
                 List<String> values = parseCsvLine(line);
                 Map<String, String> row = toRow(headers, values);
                 QueryRecord record = importRow(
-                        row.get("final_search_term"),
-                        longValue(row.get("popularity")),
-                        row.get("search_time"),
+                        firstString(row, "final_search_term", "query", "keyword", "title", "product_name"),
+                        firstLong(row, "popularity", "count", "frequency", "search_count"),
+                        firstString(row, "search_time", "last_searched_at", "timestamp"),
                         seen);
                 if (record != null) {
                     indexed.add(record);
@@ -115,6 +115,26 @@ public class DatasetImportService {
         }
         long count = Math.max(1, popularity);
         return queryStore.upsertImported(normalized, normalized, count, parseInstant(searchTime));
+    }
+
+    private static String firstString(Map<String, ?> row, String... keys) {
+        for (String key : keys) {
+            Object value = row.get(key);
+            if (value != null && !String.valueOf(value).isBlank()) {
+                return String.valueOf(value);
+            }
+        }
+        return "";
+    }
+
+    private static long firstLong(Map<String, ?> row, String... keys) {
+        for (String key : keys) {
+            Object value = row.get(key);
+            if (value != null && !String.valueOf(value).isBlank()) {
+                return longValue(value);
+            }
+        }
+        return 1;
     }
 
     private static String stringValue(Object value) {

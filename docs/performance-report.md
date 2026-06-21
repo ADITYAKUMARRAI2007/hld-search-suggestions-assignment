@@ -5,7 +5,7 @@
 - Date: 2026-06-22 IST
 - Runtime: Java 23 running Java 21 source target
 - App profile: default smoke profile
-- Dataset: built-in smoke fixture seeded through app startup
+- Dataset used for this benchmark: built-in smoke seed, so the project is easy to verify on any desktop
 - Real dataset source for grading: AmazonQAC, <https://huggingface.co/datasets/amazon/AmazonQAC>
 
 ## Benchmark Command
@@ -19,19 +19,22 @@ The script warms repeated prefixes, submits repeated searches, forces a batch fl
 ## Measured Results
 
 ```text
-Suggest requests: 203
-Cache hits: 192
-Cache misses: 11
-Cache hit rate: 94.58%
-Average suggest latency: 0.16 ms
-P95 suggest latency: 0.34 ms
-Search events received: 540
-DB write operations: 7
-Writes saved by batching: 533
-Write reduction: 98.70%
-Batch flushes: 7
-Trend events processed: 540
-Prefix cache invalidations: 252
+Suggest requests: 201
+Cache hits: 184
+Cache misses: 17
+Cache hit rate: 91.54%
+Average suggest latency: 0.91 ms
+P95 suggest latency: 1.62 ms
+Search events received: 500
+Kafka events published: 500
+DB write operations: 5
+Writes saved by batching: 495
+Write reduction: 99.00%
+Batch flushes: 5
+Trend events processed: 500
+Prefix cache invalidations: 180
+Cache node distribution: cache-node-3=75, cache-node-2=126
+Ranking mode requests: hybrid=201
 ```
 
 ## Interpretation
@@ -42,11 +45,12 @@ Prefix cache invalidations: 252
 
 ## Required Full-Dataset Run
 
-For final grading, load at least 100,000 unique AmazonQAC queries:
+For a full grading-sized run, place an AmazonQAC export under `data/` and load at least 100,000 unique queries through Docker Compose:
 
 ```bash
-mvn -Dmaven.repo.local=.m2/repository spring-boot:run \
-  -Dspring-boot.run.arguments="--typeahead.dataset.import-path=/path/to/amazonqac_100k.csv --typeahead.dataset.import-limit=100000"
+TYPEAHEAD_DATASET_IMPORT_PATH=/data/amazonqac_100k.csv \
+TYPEAHEAD_DATASET_IMPORT_LIMIT=100000 \
+docker compose up --build
 ```
 
 Then rerun:
@@ -55,4 +59,4 @@ Then rerun:
 ./scripts/benchmark.sh
 ```
 
-The report should be refreshed with full-dataset numbers before GitHub submission if the evaluator requires measured 100k-dataset evidence.
+The same benchmark script can then be rerun against the Docker profile to produce full-dataset numbers backed by PostgreSQL, OpenSearch, Redis, and Kafka.

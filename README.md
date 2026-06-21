@@ -9,11 +9,13 @@ mvn -Dmaven.repo.local=.m2/repository test
 mvn -Dmaven.repo.local=.m2/repository spring-boot:run
 ```
 
-Open:
+Open after the app starts:
 
 - UI: `http://127.0.0.1:8080`
 - Swagger/OpenAPI: `http://127.0.0.1:8080/docs`
 - Health: `http://127.0.0.1:8080/actuator/health`
+
+These localhost URLs are only for evaluator/local execution after cloning the public GitHub repository. The submitted HLD architecture is the production-style service layout described below and in the project report.
 
 The default profile starts with an in-memory smoke dataset so the evaluator can test the APIs immediately. The production/Docker profile is configured for PostgreSQL, OpenSearch, Kafka, and Redis shards.
 
@@ -21,23 +23,36 @@ The default profile starts with an in-memory smoke dataset so the evaluator can 
 docker compose up --build
 ```
 
+To load a real AmazonQAC export into the Docker stack, put the file under `data/` and pass the import path:
+
+```bash
+TYPEAHEAD_DATASET_IMPORT_PATH=/data/amazonqac_100k.csv \
+TYPEAHEAD_DATASET_IMPORT_LIMIT=100000 \
+docker compose up --build
+```
+
 ## Architecture
 
 ```text
-Browser UI
-  -> Spring Boot API
-      -> Suggestion Service
-          -> ConsistentHashRing
-          -> Prefix Cache Shards
-          -> OpenSearch/In-memory Suggestion Index
-      -> Search API
-          -> Kafka/In-memory Event Publisher
-      -> Batch Aggregator
-          -> query-count upsert
-          -> trend bucket update
-          -> suggestion weight refresh
-          -> prefix cache invalidation
-      -> Metrics
+Users / Browser
+  -> CDN / Load Balancer / API Gateway
+  -> Spring Boot API Service Replicas
+
+GET /suggest
+  -> Suggestion Service
+  -> Consistent Hash Ring
+  -> Redis Prefix Cache Shards
+  -> OpenSearch Suggestion Index on cache miss
+
+POST /search
+  -> Kafka search-events topic
+  -> Batch Writer Workers
+  -> PostgreSQL counts + trend buckets
+  -> OpenSearch weight refresh
+  -> Redis affected-prefix invalidation
+
+Observability
+  -> Spring Boot Actuator + Micrometer metrics
 ```
 
 Production choices:
@@ -62,22 +77,28 @@ Why it fits:
 - Real query-autocomplete dataset.
 - Contains `final_search_term`, `popularity`, `search_time`, and typed `prefixes`.
 - Dataset page lists Parquet format and a 100M-1B row scale.
-- Train split is far above the required 100,000 queries.
+- The published dataset size is far above the required 100,000 queries.
 
-The Java importer accepts AmazonQAC-derived CSV or JSONL:
+The Java importer accepts both the assignment format (`query,count`) and AmazonQAC-derived CSV/JSONL (`final_search_term,popularity,search_time,prefixes`). This project does not train a model; it imports real queries, indexes them for prefix lookup, and ranks them with historical and recent counts.
 
 ```bash
 mvn -Dmaven.repo.local=.m2/repository spring-boot:run \
   -Dspring-boot.run.arguments="--typeahead.dataset.import-path=/path/to/amazonqac_100k.csv --typeahead.dataset.import-limit=100000"
 ```
 
-Expected CSV fields:
+Accepted CSV fields:
+
+```text
+query,count
+```
+
+or:
 
 ```text
 final_search_term,popularity,search_time,prefixes
 ```
 
-A tiny smoke fixture is included at [data/sample-amazonqac-smoke.csv](data/sample-amazonqac-smoke.csv). It is only for local smoke testing; the grading dataset source remains AmazonQAC.
+A tiny smoke fixture is included at [data/sample-amazonqac-smoke.csv](data/sample-amazonqac-smoke.csv). It is only for local smoke testing and UI demos; it is not the 100,000-query grading dataset. The grading dataset source remains AmazonQAC.
 
 ## APIs
 
@@ -118,10 +139,10 @@ Recent searches are tracked through batch-aggregated 5-minute buckets. The API s
 Example from the live smoke benchmark:
 
 ```text
-Search events received: 540
-DB write operations: 7
-Writes saved: 533
-Write reduction: 98.70%
+Search events received: 500
+DB write operations: 5
+Writes saved: 495
+Write reduction: 99.00%
 ```
 
 Failure trade-off:
@@ -144,14 +165,14 @@ Smoke-profile benchmark command:
 Measured on the local smoke profile:
 
 ```text
-Suggest requests: 203
-Cache hit rate: 94.58%
-Average suggest latency: 0.16 ms
-P95 suggest latency: 0.34 ms
-Search events: 540
-DB writes: 7
-Writes saved: 533
-Write reduction: 98.70%
+Suggest requests: 201
+Cache hit rate: 91.54%
+Average suggest latency: 0.91 ms
+P95 suggest latency: 1.62 ms
+Search events: 500
+DB writes: 5
+Writes saved: 495
+Write reduction: 99.00%
 ```
 
 Full report: [docs/performance-report.md](docs/performance-report.md)
@@ -171,16 +192,8 @@ Demo script:
 
 The demo proves the required ranking difference: `rank=count` keeps the historically popular query first, while repeated searches lift the same-prefix query in `rank=hybrid`.
 
-## Rubric Checklist
-
-| Component | Marks | Status |
-|---|---:|---|
-| Basic implementation | 60 | Implemented: dataset import path, UI, suggestions API, search API, count updates, consistent-hash prefix cache. |
-| Trending searches | 20 | Implemented: windowed buckets, `/trending`, hybrid ranking, cache invalidation, visible count-vs-hybrid demo. |
-| Batch writes | 20 | Implemented: event queue abstraction, Kafka profile, batch aggregation, write-reduction metrics, failure trade-offs. |
-
 ## Submission Notes
 
-- GitHub push still requires repository remote/access approval.
 - AmazonQAC full train data is not committed because the dataset is large.
-- The included screenshots and smoke benchmark were generated from the local runnable profile.
+- The public GitHub repository contains the runnable source code, Markdown report source, and generated PDF report.
+- The included screenshots and smoke benchmark were generated from the evaluator-friendly local profile.

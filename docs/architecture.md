@@ -1,66 +1,128 @@
-# Architecture
+# HLD Architecture
 
-## Runtime Components
+This is the system architecture, not a repository/package diagram. The goal is to show how a production search typeahead service handles low-latency prefix reads, durable query-count writes, recency-aware ranking, and distributed caching.
+
+## Production Deployment View
 
 ```text
-Browser / Demo UI
-  -> Spring Boot API Service
-      -> SuggestionController
-      -> SearchController
-      -> TrendingController
-      -> CacheDebugController
-      -> MetricsController
+Users / Browser
+  |
+  v
+CDN / Load Balancer / API Gateway
+  |
+  v
+Spring Boot API Service Replicas
+  |---- GET /suggest -----------------------------|
+  |                                                v
+  |                                      Suggestion Service
+  |                                                |
+  |                                      normalize prefix
+  |                                                |
+  |                                      Consistent Hash Ring
+  |                                                |
+  |                                      Redis Prefix Cache Shards
+  |                                      /       |        \
+  |                             cache-node-1 cache-node-2 cache-node-3
+  |                                                |
+  |                                      cache miss fallback
+  |                                                v
+  |                                      OpenSearch Suggestion Index
+  |
+  |---- POST /search ------------------------------|
+                                                   v
+                                           Kafka search-events
+                                                   |
+                                                   v
+                                           Batch Writer Workers
+                                           |       |       |
+                                           v       v       v
+                                    PostgreSQL  OpenSearch  Redis invalidation
+                                    counts +    weight      affected prefix
+                                    trend       refresh     cache keys
+                                    buckets
 
-SuggestionController
-  -> QueryNormalizer
-  -> CacheKeyService
-  -> PrefixCache
-      -> ConsistentHashRing
-      -> cache-node-1/cache-node-2/cache-node-3
-  -> SuggestionIndex
-      -> OpenSearch in production profile
-      -> in-memory index in smoke profile
-
-SearchController
-  -> SearchSubmissionService
-  -> SearchEventPublisher
-      -> Kafka in production profile
-      -> in-memory publisher in smoke profile
-  -> BatchAggregator
-  -> QueryStore
-      -> PostgreSQL in production profile
-      -> in-memory store in smoke profile
-  -> TrendBucketService
-  -> SuggestionIndex refresh
-  -> Prefix cache invalidation
+Dataset import: AmazonQAC CSV/JSONL -> PostgreSQL query_catalog -> OpenSearch suggestion index
+Observability: Actuator + Micrometer metrics -> Prometheus/Grafana-ready endpoints
 ```
 
-## Read Path
+## Why This Architecture Fits Typeahead
 
-1. User types a prefix.
-2. API normalizes the prefix.
-3. Cache key is built as `suggest:v1:{version}:{rank}:{prefix}`.
-4. `ConsistentHashRing` routes the key to a cache node.
-5. Cache hit returns top 10 immediately.
-6. Cache miss queries the suggestion index and stores the result with TTL.
+| Requirement | Architecture Decision | Reason |
+|---|---|---|
+| Top 10 prefix suggestions with low latency | Redis prefix cache before OpenSearch | Hot prefixes repeat heavily, so cache hits avoid index calls. |
+| Suggestions sorted by popularity | OpenSearch weighted completion index | Completion suggester supports prefix lookup and weight-based ranking. |
+| Query-count updates | PostgreSQL source of truth | Counts need durable upserts and auditability. |
+| Distributed cache with consistent hashing | Java hash ring over Redis shards | Shows deterministic node ownership and limited remapping when cache nodes change. |
+| Trending searches | Kafka events + 5-minute PostgreSQL-backed trend buckets in Docker profile | Recent activity can affect rank without permanently overriding history. |
+| Batch writes | Kafka + batch workers | Repeated searches become one aggregated database/index update per flush. |
+| Performance evidence | Metrics endpoint | Exposes latency, p95, cache hit rate, DB writes, and write reduction. |
 
-## Write Path
+## Suggestion Read Path
 
-1. User submits a search.
-2. API validates and normalizes the query.
-3. Search event is published.
-4. Batch worker aggregates repeated queries.
-5. Worker updates query counts, trend buckets, suggestion weights, and cache invalidations.
+```text
+GET /suggest?q=iph&rank=hybrid
+  -> normalize q to "iph"
+  -> build cache key suggest:v1:{version}:hybrid:iph
+  -> consistent hash ring selects one Redis cache node
+  -> cache hit: return cached top 10
+  -> cache miss: query OpenSearch completion suggester
+  -> cache top 10 with TTL
+  -> return suggestions + cache debug + latency
+```
+
+The same endpoint supports two ranking modes:
+
+- `rank=count`: basic version sorted by all-time historical count.
+- `rank=hybrid`: enhanced version using historical and recent activity.
+
+## Search Write Path
+
+```text
+POST /search
+  -> validate and normalize query
+  -> publish search event to Kafka
+  -> return "Searched" quickly
+
+Batch writer:
+  -> consume events from Kafka
+  -> aggregate repeated queries
+  -> bulk upsert PostgreSQL counts
+  -> update 5-minute PostgreSQL trend buckets
+  -> refresh OpenSearch suggestion weights
+  -> invalidate affected Redis prefix cache keys
+```
+
+This keeps search submission fast while still making updates eventually visible in suggestions and trending.
+
+## Trending Ranking
+
+Recent activity is tracked in 5-minute buckets and queried as `1h`, `24h`, and `7d` windows.
+
+```text
+hybrid_score =
+  log10(historical_count + 1) * 100000
+  + log10(recent_count_1h + 1) * 60000
+  + log10(recent_count_24h + 1) * 25000
+```
+
+This prevents permanent over-ranking because recent counts expire from the active window. A short TTL on hybrid cache entries plus prefix invalidation after batch flushes keeps the ranking fresh.
+
+In the Docker profile, trend buckets are written to PostgreSQL. In the default smoke profile, the same store interface uses memory so the system can run on a fresh desktop without external services.
 
 ## Consistent Hashing
 
-The cache ring uses 128 virtual nodes per physical node. A cache key is hashed using SHA-256 and assigned to the first virtual node clockwise. Adding or removing cache nodes only remaps keys in affected ranges, avoiding the widespread cache churn caused by modulo hashing.
+The cache ring uses 128 virtual nodes per Redis shard. A prefix cache key is hashed using SHA-256 and assigned to the first virtual node clockwise.
 
-## Production Mapping
+Benefits:
 
-| Interface | Smoke Profile | Production/Docker Profile |
+- Even distribution across cache nodes.
+- Adding/removing a node remaps only part of the keyspace.
+- Lower cache churn than modulo hashing.
+- `/cache/debug` proves which node owns a prefix.
+
+## Runnable Profiles
+
+| Runtime | Purpose | Storage/Search/Cache/Eventing |
 |---|---|---|
-| QueryStore | In-memory map | PostgreSQL/JDBC |
-| SuggestionIndex | In-memory prefix scan | OpenSearch completion suggester |
-| PrefixCache | In-memory shards | Redis shards behind same hash ring |
-| SearchEventPublisher | In-memory queue | Kafka |
+| Default smoke profile | Fast evaluator demo without external services | In-memory query store, trend buckets, index, cache, and event queue |
+| Docker/production profile | Production-like architecture on one machine | PostgreSQL query store + trend buckets, OpenSearch, Redis shards, Kafka |

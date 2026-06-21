@@ -18,7 +18,7 @@ Kafka makes accepted search events durable. This is stronger than an in-memory-o
 
 ## Trending Windows
 
-Recent activity is tracked in 5-minute buckets and queried as `1h`, `24h`, or `7d` windows. This prevents short-lived spikes from being permanently over-ranked. The trade-off is that shorter windows are fresher but require more frequent cache invalidation and index refreshes.
+Recent activity is tracked in 5-minute buckets and queried as `1h`, `24h`, or `7d` windows. In the Docker profile those buckets are persisted in PostgreSQL; in the default smoke profile they use memory so the project can run without external services. This prevents short-lived spikes from being permanently over-ranked. The trade-off is that shorter windows are fresher but require more frequent cache invalidation and index refreshes.
 
 ## Cache Freshness
 

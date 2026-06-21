@@ -34,6 +34,11 @@ spring:
         spring.json.trusted.packages: com.example.typeahead.search
 
 management:
+  health:
+    db:
+      enabled: false
+    redis:
+      enabled: false
   endpoints:
     web:
       exposure:

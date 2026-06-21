@@ -82,5 +82,9 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      TYPEAHEAD_DATASET_IMPORT_PATH: ${TYPEAHEAD_DATASET_IMPORT_PATH:-}
+      TYPEAHEAD_DATASET_IMPORT_LIMIT: ${TYPEAHEAD_DATASET_IMPORT_LIMIT:-100000}
+    volumes:
+      - ./data:/data:ro
     ports:
       - "8080:8080"

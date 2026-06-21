@@ -14,8 +14,10 @@ import com.example.typeahead.normalize.QueryNormalizer;
 import com.example.typeahead.ranking.RankingService;
 import com.example.typeahead.search.InMemorySearchEventPublisher;
 import com.example.typeahead.search.SearchSubmissionService;
+import com.example.typeahead.store.QueryAggregate;
 import com.example.typeahead.store.InMemoryQueryStore;
 import com.example.typeahead.suggestion.InMemorySuggestionIndex;
+import com.example.typeahead.trending.InMemoryTrendBucketStore;
 import com.example.typeahead.suggestion.SuggestionService;
 import com.example.typeahead.trending.TrendBucketService;
 import com.example.typeahead.trending.TrendWindow;
@@ -50,12 +52,26 @@ class BatchTrendingFlowTest {
         assertThat(metrics.writesSavedByBatching()).isEqualTo(39);
     }
 
+    @Test
+    void oldTrendBucketsDoNotCountInsideShortWindow() {
+        InMemoryTrendBucketStore trendBucketStore = new InMemoryTrendBucketStore();
+        trendBucketStore.record(List.of(new QueryAggregate(
+                "old spike",
+                "old spike",
+                10,
+                Instant.now().minusSeconds(7_200))), 5);
+
+        assertThat(trendBucketStore.recentCount("old spike", TrendWindow.ONE_HOUR, 5)).isZero();
+        assertThat(trendBucketStore.recentCount("old spike", TrendWindow.TWENTY_FOUR_HOURS, 5)).isEqualTo(10);
+    }
+
     private static final class TestRig {
         private final QueryNormalizer normalizer = new QueryNormalizer();
         private final RankingService rankingService = new RankingService();
         private final InMemoryQueryStore store = new InMemoryQueryStore();
+        private final InMemoryTrendBucketStore trendBucketStore = new InMemoryTrendBucketStore();
         private final TrendBucketService trendBucketService = new TrendBucketService(
-                new TrendingProperties(5), store, rankingService);
+                new TrendingProperties(5), trendBucketStore, store, rankingService);
         private final InMemorySuggestionIndex suggestionIndex = new InMemorySuggestionIndex(
                 store, trendBucketService, rankingService);
         private final CacheProperties cacheProperties = new CacheProperties(
