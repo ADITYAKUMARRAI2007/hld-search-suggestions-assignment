@@ -1,0 +1,75 @@
+server:
+  port: 8080
+
+debug: false
+
+logging:
+  level:
+    root: INFO
+
+spring:
+  application:
+    name: production-search-typeahead
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    serialization:
+      write-dates-as-timestamps: false
+  flyway:
+    enabled: false
+  datasource:
+    url: jdbc:postgresql://localhost:5432/typeahead
+    username: typeahead
+    password: typeahead
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: typeahead-batch-writer
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.example.typeahead.search
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /docs
+
+typeahead:
+  store: in-memory
+  search-index: in-memory
+  events: in-memory
+  cache:
+    version: 1
+    provider: in-memory
+    virtual-nodes: 128
+    max-prefix-invalidation-length: 20
+    count-ttl-seconds: 180
+    hybrid-ttl-seconds: 15
+    nodes:
+      - cache-node-1
+      - cache-node-2
+      - cache-node-3
+  batch:
+    flush-interval-ms: 2000
+    max-events: 500
+  trending:
+    bucket-minutes: 5
+  dataset:
+    import-path: ""
+    import-limit: 100000
+  opensearch:
+    base-url: http://localhost:9200
+    index: query_suggestions_v1

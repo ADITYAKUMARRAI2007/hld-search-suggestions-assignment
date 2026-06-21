@@ -1,0 +1,10 @@
+target/
+.m2/
+.idea/
+.vscode/
+.DS_Store
+*.log
+data/*.db
+data/*.parquet
+data/*.jsonl
+data/*.csv.gz

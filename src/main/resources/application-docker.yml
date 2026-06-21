@@ -1,0 +1,19 @@
+spring:
+  flyway:
+    enabled: true
+  datasource:
+    url: jdbc:postgresql://postgres:5432/typeahead
+    username: typeahead
+    password: typeahead
+  kafka:
+    bootstrap-servers: kafka:9092
+
+typeahead:
+  store: jdbc
+  search-index: opensearch
+  events: kafka
+  cache:
+    provider: redis
+  opensearch:
+    base-url: http://opensearch:9200
+    index: query_suggestions_v1

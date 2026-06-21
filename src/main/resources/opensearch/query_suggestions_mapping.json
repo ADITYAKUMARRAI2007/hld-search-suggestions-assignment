@@ -1,0 +1,23 @@
+{
+  "mappings": {
+    "properties": {
+      "normalized_query": { "type": "keyword" },
+      "display_query": { "type": "keyword" },
+      "suggest_count": {
+        "type": "completion",
+        "analyzer": "simple",
+        "preserve_separators": true
+      },
+      "suggest_hybrid": {
+        "type": "completion",
+        "analyzer": "simple",
+        "preserve_separators": true
+      },
+      "historical_count": { "type": "long" },
+      "recent_count_1h": { "type": "long" },
+      "recent_count_24h": { "type": "long" },
+      "hybrid_score": { "type": "long" },
+      "updated_at": { "type": "date" }
+    }
+  }
+}

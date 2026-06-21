@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search Typeahead System</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="workspace">
+      <div class="search-surface">
+        <div class="topline">
+          <div>
+            <h1>Search Typeahead</h1>
+            <p>Production-style autocomplete with cache routing, trending, and batched writes.</p>
+          </div>
+          <div class="mode-toggle" role="group" aria-label="Ranking mode">
+            <button id="rank-count" type="button" data-rank="count">Overall</button>
+            <button id="rank-hybrid" type="button" data-rank="hybrid" class="active">Trending-aware</button>
+          </div>
+        </div>
+
+        <form id="search-form" class="search-row" autocomplete="off">
+          <div class="input-wrap">
+            <input id="search-input" name="q" type="search" placeholder="Search products, topics, tutorials..." aria-label="Search">
+            <ul id="suggestions" class="suggestions" role="listbox"></ul>
+          </div>
+          <button class="submit" type="submit">Search</button>
+        </form>
+
+        <div id="status" class="status">Ready</div>
+      </div>
+
+      <section class="grid">
+        <article>
+          <div class="panel-head">
+            <h2>Trending</h2>
+            <select id="trend-window" aria-label="Trending window">
+              <option value="1h">1h</option>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+            </select>
+          </div>
+          <ol id="trending-list" class="rank-list"></ol>
+        </article>
+
+        <article>
+          <div class="panel-head">
+            <h2>Cache Debug</h2>
+            <button id="refresh-debug" type="button">Refresh</button>
+          </div>
+          <dl id="debug-panel" class="facts"></dl>
+        </article>
+
+        <article class="wide">
+          <div class="panel-head">
+            <h2>Metrics</h2>
+            <button id="refresh-metrics" type="button">Refresh</button>
+          </div>
+          <dl id="metrics-panel" class="facts metrics"></dl>
+        </article>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
